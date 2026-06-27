@@ -1,5 +1,7 @@
+#include <Arduino.h>
 #include <ModbusMaster.h>
 #include <ESP32Encoder.h>
+#include <FastLED.h>
 
 // ==========================================
 // DEBUG MACROS
@@ -34,12 +36,19 @@
 // Output enable button
 #define BUTTON_PIN 8
 
+// Led info
+#define LED_DATA_PIN 9
+#define LED_ARRAY_LENGTH 5
+#define LED_COLOUR_ORDER GRB
+#define LED_TYPE WS2812B
+
 // ==========================================
 // GLOBALS & OBJECTS
 // ==========================================
 ModbusMaster node;
 ESP32Encoder encoderVoltage;
 ESP32Encoder encoderCurrent;
+CRGB leds[LED_ARRAY_LENGTH];
 
 // XY6020L Modbus Multipliers (usually x100)
 const float VOLTAGE_MULTIPLIER = 100.0;
@@ -73,6 +82,7 @@ const unsigned long DEBOUNCE_DELAY = 50; // 50ms debounce time
 void setTargetVoltage(float voltage);
 void setTargetCurrent(float current);
 void readActualOutput();
+void setOutputState(bool state);
 
 // ==========================================
 // SETUP
@@ -82,6 +92,8 @@ void setup() {
     Serial.begin(115200);
     delay(100); // Give serial monitor time to connect
   #endif
+
+  FastLED.addLeds<LED_TYPE,LED_DATA_PIN,LED_COLOUR_ORDER>(leds, LED_ARRAY_LENGTH);
   
   DBG("Initializing Lab Bench Power Supply...");
 
@@ -92,7 +104,8 @@ void setup() {
 
   // --- 2. Init Encoders ---
   // Most rotary encoders connect to GND, so internal PULLUP is recommended
-  ESP32Encoder::useInternalWeakPullResistors = UP;
+  // GEWIJZIGD: UP veranderd naar enc_pull_t::UP
+  ESP32Encoder::useInternalWeakPullResistors = puType::up;
 
   encoderVoltage.attachHalfQuad(ENCODER_V_DT, ENCODER_V_CLK);
   encoderCurrent.attachHalfQuad(ENCODER_I_DT, ENCODER_I_CLK);

@@ -1,0 +1,9 @@
+CompileFlags:
+  Add:
+    - -I.pio/libdeps/adafruit_qtpy_esp32s3_n4r2/FastLED/src
+    - -I.pio/libdeps/adafruit_qtpy_esp32s3_n4r2/ModbusMaster/src
+    - -I.pio/libdeps/adafruit_qtpy_esp32s3_n4r2/ESP32Encoder/src
+  Remove:
+    - -mlongcalls
+    - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion
