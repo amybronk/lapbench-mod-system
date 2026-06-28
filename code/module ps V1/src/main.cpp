@@ -1,3 +1,4 @@
+#include "crgb.h"
 #include <Arduino.h>
 #include <ModbusMaster.h>
 #include <ESP32Encoder.h>
@@ -41,6 +42,7 @@
 #define LED_ARRAY_LENGTH 5
 #define LED_COLOUR_ORDER GRB
 #define LED_TYPE WS2812B
+#define LED_BRIGHTNESS 100
 
 // ==========================================
 // GLOBALS & OBJECTS
@@ -83,6 +85,10 @@ void setTargetVoltage(float voltage);
 void setTargetCurrent(float current);
 void readActualOutput();
 void setOutputState(bool state);
+void check_voltage_encoder();
+void check_current_encoder();
+void activate_power();
+void reset_power();
 
 // ==========================================
 // SETUP
@@ -94,7 +100,13 @@ void setup() {
   #endif
 
   FastLED.addLeds<LED_TYPE,LED_DATA_PIN,LED_COLOUR_ORDER>(leds, LED_ARRAY_LENGTH);
-  
+  FastLED.setBrightness(LED_BRIGHTNESS);
+
+  for(int i = 0; i <= LED_ARRAY_LENGTH; i++) {
+      leds[1] = CRGB(0,0,0); // not started jet
+    }
+  FastLED.show();
+
   DBG("Initializing Lab Bench Power Supply...");
 
   // --- 1. Init Modbus Communication ---
@@ -124,79 +136,27 @@ void setup() {
   // --- 3. Set Initial Safe Targets (0V / 0A) ---
   setTargetVoltage(targetVoltage);
   setTargetCurrent(targetCurrent);
+
+  delay(500);
+
+  for(int i = 0; i <= LED_ARRAY_LENGTH; i++) {
+      leds[1] = CRGB(0,255,0); // ready for use
+    }
+  FastLED.show();
 }
 
 // ==========================================
 // MAIN LOOP
 // ==========================================
 void loop() {
-  // 1. Check Voltage Encoder
-  int64_t currentVPos = encoderVoltage.getCount();
-  if (currentVPos != lastEncoderVPos) {
-    int direction = (currentVPos > lastEncoderVPos) ? 1 : -1;
-    targetVoltage += (direction * 0.1); // 0.1V steps
-    
-    // Constrain values
-    if (targetVoltage < 0.0) targetVoltage = 0.0;
-    if (targetVoltage > MAX_VOLTAGE) targetVoltage = MAX_VOLTAGE;
-
-    DBGF("New Voltage Target: %.2f V\n", targetVoltage);
-    
-    // Update power supply
-    setTargetVoltage(targetVoltage);
-    
-    lastEncoderVPos = currentVPos;
-  }
-
-  // 2. Check Current Encoder
-  int64_t currentIPos = encoderCurrent.getCount();
-  if (currentIPos != lastEncoderIPos) {
-    int direction = (currentIPos > lastEncoderIPos) ? 1 : -1;
-    targetCurrent += (direction * 0.1); // 0.1A steps
-    
-    // Constrain values
-    if (targetCurrent < 0.0) targetCurrent = 0.0;
-    if (targetCurrent > MAX_CURRENT) targetCurrent = MAX_CURRENT;
-
-    DBGF("New Current Target: %.2f A\n", targetCurrent);
-    
-    // Update power supply
-    setTargetCurrent(targetCurrent);
-    
-    lastEncoderIPos = currentIPos;
-  }
-
+  
   // 3. Read actual output periodically (Non-blocking)
   if (millis() - lastReadTime >= READ_INTERVAL) {
     lastReadTime = millis();
     readActualOutput();
   }
 
-  // Read the current state of the button
-  bool reading = digitalRead(BUTTON_PIN);
-
-  // Check if the button state has changed (due to noise or pressing)
-  if (reading != lastButtonState) {
-    lastDebounceTime = millis();
-  }
-
-  // If the state has persisted longer than the debounce delay, it's a valid press
-  if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
-    // Check if the button was pushed down (transitions from HIGH to LOW)
-    if (reading == LOW && outputActive == false && lastButtonState == HIGH) {
-      // Toggle state to ON
-      outputActive = true;
-      setOutputState(outputActive);
-    } 
-    else if (reading == LOW && outputActive == true && lastButtonState == HIGH) {
-      // Toggle state to OFF
-      outputActive = false;
-      setOutputState(outputActive);
-    }
-  }
-
-  // Save the reading for the next iteration
-  lastButtonState = reading;
+  activate_power();
 
   // Small delay for loop stability
   delay(5);
@@ -265,4 +225,90 @@ void setOutputState(bool state) {
   } else {
     DBGF("Modbus Error: Failed to change output state. Code: %d\n", result);
   }
+}
+
+void check_voltage_encoder() {
+  // 1. Check Voltage Encoder
+  int64_t currentVPos = encoderVoltage.getCount();
+  if (currentVPos != lastEncoderVPos) {
+    int direction = (currentVPos > lastEncoderVPos) ? 1 : -1;
+    targetVoltage += (direction * 0.1); // 0.1V steps
+    
+    // Constrain values
+    if (targetVoltage < 0.0) targetVoltage = 0.0;
+    if (targetVoltage > MAX_VOLTAGE) targetVoltage = MAX_VOLTAGE;
+
+    DBGF("New Voltage Target: %.2f V\n", targetVoltage);
+    
+    // Update power supply
+    setTargetVoltage(targetVoltage);
+    
+    lastEncoderVPos = currentVPos;
+  }
+}
+
+void check_current_encoder() {
+  // 2. Check Current Encoder
+  int64_t currentIPos = encoderCurrent.getCount();
+  if (currentIPos != lastEncoderIPos) {
+    int direction = (currentIPos > lastEncoderIPos) ? 1 : -1;
+    targetCurrent += (direction * 0.1); // 0.1A steps
+    
+    // Constrain values
+    if (targetCurrent < 0.0) targetCurrent = 0.0;
+    if (targetCurrent > MAX_CURRENT) targetCurrent = MAX_CURRENT;
+
+    DBGF("New Current Target: %.2f A\n", targetCurrent);
+    
+    // Update power supply
+    setTargetCurrent(targetCurrent);
+    
+    lastEncoderIPos = currentIPos;
+  }
+}
+
+
+void activate_power() {
+  // Read the current state of the button
+  bool reading = digitalRead(BUTTON_PIN);
+  
+  // Check if the button state has changed (due to noise or pressing)
+  if (reading != lastButtonState) {
+    lastDebounceTime = millis();
+  }
+  
+  // If the state has persisted longer than the debounce delay, it's a valid press
+  if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
+    // Check if the button was pushed down (transitions from HIGH to LOW)
+    if (reading == LOW && outputActive == false && lastButtonState == HIGH) {
+      // Toggle state to ON
+      outputActive = true;
+      
+      for(int i = 0; i <= LED_ARRAY_LENGTH; i++) {
+        leds[1] = CRGB(255,0,0); // output turned on
+      }
+      FastLED.show();
+      
+      setOutputState(outputActive);
+    } 
+    else if (reading == LOW && outputActive == true && lastButtonState == HIGH) {
+      // Toggle state to OFF
+      outputActive = false;
+      
+      for(int i = 0; i <= LED_ARRAY_LENGTH; i++) {
+        leds[1] = CRGB(0,0,255); // wayting for output at 0
+      }
+      FastLED.show();
+      
+      setOutputState(outputActive);
+    }
+  }
+  
+  // Save the reading for the next iteration
+  lastButtonState = reading;
+}
+
+void reset_power() {
+  setTargetVoltage(targetVoltage);
+  setTargetCurrent(targetCurrent);
 }
